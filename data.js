@@ -30,9 +30,13 @@
   window.DEFAULT_DATA = {
     /* 기본 데이터를 바꿀 때마다 1씩 올려요. 이미 저장된 브라우저에는
        새로 추가된(since) 기록만 들어가고, 직접 입력한 기록은 그대로 남아요. */
-    dataVersion: 8,
+    dataVersion: 9,
     retire: [],
-    fixes: [],
+    /* 이미 저장된 기록의 값이 from 과 같을 때만 to 로 고쳐요 (직접 고친 값은 건드리지 않아요) */
+    fixes: [
+      { list: 'trips', id: 't4', field: 'lat', from: 48.8566, to: 16.0544 },
+      { list: 'trips', id: 't4', field: 'lng', from: 2.3522, to: 108.2022 }
+    ],
     categories: {
       "exercise": [
         {
@@ -416,8 +420,8 @@
         "rating": 0,
         "catId": "tr-world",
         "subId": "sxmwaa616z7g22",
-        "lat": 48.8566,
-        "lng": 2.3522,
+        "lat": 16.0544,
+        "lng": 108.2022,
         "review": "해산물요리 맛집투어 쉬고 싶어요",
         "photos": [],
         "links": [],
