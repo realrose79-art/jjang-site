@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>나의 기록장</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="scenery up" aria-hidden="true"></div>
+  <div class="scenery down" aria-hidden="true"></div>
+  <header class="top">
+    <h1>나의 기록장</h1>
+    <p class="sub" id="heroLine"></p>
+  </header>
+
+  <div class="backup-bar" id="backupBar" role="status" hidden></div>
+
+  <nav class="nav" id="nav">
+    <button data-tab="exercise" class="on"><span class="ico">🚴</span><span>나의 운동</span></button>
+    <button data-tab="music"><span class="ico">🎹</span><span>나의 음악</span></button>
+    <button data-tab="travel"><span class="ico">🧳</span><span>나의 여행</span></button>
+  </nav>
+
+  <main>
+    <div class="sheet">
+      <section id="view-exercise" class="view on"></section>
+
+      <section id="view-music" class="view"></section>
+
+      <section id="view-travel" class="view">
+        <div id="travelTop"></div>
+        <div id="map" class="map"></div>
+        <div id="travelList"></div>
+      </section>
+    </div>
+
+    <footer class="foot">
+      <button class="btn ghost small" data-act="export">백업 저장</button>
+      <button class="btn ghost small" data-act="import">백업 불러오기</button>
+      <button class="btn ghost small" data-act="clearSamples">예시 데이터 지우기</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <p class="note">기록은 이 기기의 브라우저에만 저장돼요. 가끔 백업 저장으로 파일을 남겨 두세요.</p>
+      <p class="note" id="backupNote"></p>
+    </footer>
+  </main>
+
+  <dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
+  <div id="toast" class="toast"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

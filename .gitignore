@@ -1,0 +1,15 @@
+﻿# 비밀 파일
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+*.secret
+
+# 백업·임시 파일
+나의기록장_백업_*.json
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.claude/
