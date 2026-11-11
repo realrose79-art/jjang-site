@@ -446,16 +446,31 @@
     var thisYear = done.filter(function (t) { return tripKey(t).slice(0, 4) === year; }).length;
     var v = ui.travel.view;
 
+    /* AI 추천 일정이 준비된 "가고 싶어요" 장소 — 여행 탭 어디서든 알아볼 수 있게 알린다 */
+    var aiWant = want.filter(function (t) { return aiPlan(t); }), aiCount = aiWant.length;
+    var navBtn = document.querySelector('.nav button[data-tab="travel"]');
+    if (navBtn) navBtn.classList.toggle('has-ai', aiCount > 0);
+    var promo = !aiCount ? '' :
+      '<div class="ai-promo"><span class="ai-spark" aria-hidden="true">✨</span>' +
+      '<div class="ai-promo-txt"><b>가고 싶은 곳은 AI가 일정을 짜 드려요</b>' +
+      '<span>' + (v === 'want'
+        ? '아래 보라색 <em>AI 추천 일정</em> 버튼을 눌러 보세요. 대화로 일정을 바꿀 수도 있어요.'
+        : 'AI 추천이 준비된 곳: ' + aiWant.map(function (t) { return esc(t.place); }).join(', ') + ' — “가고 싶어요”에서 볼 수 있어요.') + '</span></div>' +
+      (v === 'want' ? '' : '<button class="btn ai-go" data-act="goWant">가고 싶어요에서 보기 →</button>') + '</div>';
+
     $('#travelTop').innerHTML =
       '<div class="head"><div class="figs">' + fig(thisYear + '곳', '올해 다녀옴') + fig(done.length + '곳', '다녀왔어요') + fig(want.length + '곳', '가고 싶어요') + '</div>' +
       '<button class="btn primary" data-act="add" data-tab="travel">장소 추가하기</button></div>' +
+      promo +
       '<div class="seg"><button data-act="view" data-val="done" class="' + (v === 'done' ? 'on' : '') + '">다녀왔어요</button>' +
-      '<button data-act="view" data-val="want" class="' + (v === 'want' ? 'on' : '') + '">가고 싶어요</button></div>' +
+      '<button data-act="view" data-val="want" class="' + (v === 'want' ? 'on' : '') + '">가고 싶어요' + (aiCount ? '<span class="seg-ai">✨AI추천</span>' : '') + '</button></div>' +
       chipsHtml('travel');
 
     var filtered = applyFilter('travel', S.trips);
     var list = filtered.filter(function (t) { return t.status === v; })
       .sort(function (a, b) {
+        var ai = (aiPlan(b) ? 1 : 0) - (aiPlan(a) ? 1 : 0);   /* AI 추천이 있는 카드를 맨 위로 */
+        if (v === 'want' && ai) return ai;
         var x = tripKey(a), y = tripKey(b);
         return x < y ? 1 : x > y ? -1 : 0;
       });
@@ -483,15 +498,18 @@
     var stub = t.date ? '<small>' + yr + '</small><b>' + md + '</b>'
       : t.when ? '<b>' + esc(t.when) + '</b>'
       : (done ? '<b>날짜 없음</b>' : '<b>언젠가</b>');
-    return '<article class="card trip ' + esc(t.status) + '"><div class="stub">' + stub + '</div><div class="body">' +
+    var hasAi = !done && !!aiPlan(t);
+    return '<article class="card trip ' + esc(t.status) + (hasAi ? ' ai' : '') + '"><div class="stub">' + stub + '</div><div class="body">' +
+      (hasAi ? '<div class="ai-ribbon">✨ AI 추천 일정이 있어요</div>' : '') +
       '<div class="tags"><span class="tag">' + esc(catLabel('travel', t)) + '</span>' + (t.sample ? '<span class="tag sample">예시</span>' : '') + '</div>' +
       '<div class="t">' + esc(t.place) + '</div>' +
       (done && t.rating ? '<div class="stars">' + stars(t.rating) + '</div>' : '') +
       (t.review ? '<div class="m">' + esc(t.review) + '</div>' : '') +
       (photos ? '<div class="photos">' + photos + '</div>' : '') +
       (links ? '<div class="linklist">' + links + '</div>' : '') +
-      '<div class="bottom"><div>' + (done ? '' : '<button class="pill" data-act="markDone" data-id="' + t.id + '">다녀왔어요로 옮기기</button>') +
-      (!done && aiPlan(t) ? ' <button class="pill ai" data-act="aiPlan" data-id="' + t.id + '">✨ AI추천</button>' : '') + '</div>' +
+      (hasAi ? '<button class="ai-cta" data-act="aiPlan" data-id="' + t.id + '"><span class="ai-cta-main">✨ AI 추천 일정 보기</span>' +
+        '<span class="ai-cta-sub">' + esc(aiPlan(t).title) + ' · 대화로 일정도 바꿀 수 있어요</span></button>' : '') +
+      '<div class="bottom"><div>' + (done ? '' : '<button class="pill" data-act="markDone" data-id="' + t.id + '">다녀왔어요로 옮기기</button>') + '</div>' +
       actsHtml('travel', t.id) + '</div></div></article>';
   }
 
@@ -1135,6 +1153,15 @@
         break;
       }
       case 'aiPlan': showAiPlan(find('travel', id)); break;
+      case 'goWant':
+        ui.travel.view = 'want'; renderTravel();
+        setTimeout(function () {
+          var c = document.querySelector('.card.trip.ai');
+          if (!c) return;
+          c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          c.classList.add('flash'); setTimeout(function () { c.classList.remove('flash'); }, 2400);
+        }, 80);
+        break;
       case 'aiSend': aiSend(); break;
       case 'aiReset': aiReset(); break;
       case 'geo': geoSearch(); break;

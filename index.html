@@ -6,7 +6,7 @@
   <title>나의 기록장</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Jua&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -19,7 +19,7 @@
   </header>
 
   <div class="backup-bar login-bar" id="loginBar" role="status" hidden>
-    <span>🔒 로그인하지 않았어요. 기록은 이 기기에만 저장돼요. <b>서버 저장·수정/삭제의 동기화·AI 추천 대화</b>는 로그인해야 돼요.</span>
+    <span>🔒 로그인 전이라 기록이 이 기기에만 저장돼요. <b>AI 추천 대화</b>도 로그인해야 해요.</span>
     <button class="btn small primary" data-act="auth">로그인</button>
   </div>
   <div class="backup-bar" id="backupBar" role="status" hidden></div>
@@ -27,7 +27,7 @@
   <nav class="nav" id="nav">
     <button data-tab="exercise" class="on"><span class="ico">🚴</span><span>나의 운동</span></button>
     <button data-tab="music"><span class="ico">🎹</span><span>나의 음악</span></button>
-    <button data-tab="travel"><span class="ico">🧳</span><span>나의 여행</span></button>
+    <button data-tab="travel"><span class="ico">🧳</span><span>나의 여행</span><span class="ai-badge" aria-label="AI 추천 있음">AI</span></button>
   </nav>
 
   <main>
