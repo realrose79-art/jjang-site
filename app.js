@@ -12,11 +12,13 @@
       var raw = localStorage.getItem(KEY);
       if (raw) {
         S = JSON.parse(raw);
+        S.removed = S.removed || [];
         if (S.dataVersion !== def.dataVersion) syncDefaults(def);
         return;
       }
     } catch (e) { /* 저장소를 못 쓰면 예시로 시작 */ }
     S = clone(def);
+    S.removed = [];
     S.trips.forEach(function (r) { resolveSub('travel', r); });
   }
   /* 기본 기록의 subName(세부 분류 이름)을 실제 세부 분류와 연결한다.
@@ -57,10 +59,13 @@
     S.dataVersion = def.dataVersion;
     save();
   }
-  function save() {
+  function saveLocal() {
     try { localStorage.setItem(KEY, JSON.stringify(S)); }
     catch (e) { toast('저장하지 못했어요. 브라우저 저장 설정을 확인해 주세요.'); }
   }
+  function save() { saveLocal(); scheduleSync(); }
+  /* 이 기기에서 지운 기록·카테고리 id. 서버에는 삭제 권한이 없어서, 불러올 때 되살아나지 않게 기억해 둔다. */
+  function markRemoved(id) { (S.removed = S.removed || []).push(id); }
 
   /* ---------- 도우미 ---------- */
   function $(s, r) { return (r || document).querySelector(s); }
@@ -527,6 +532,7 @@
       var n = usedBy(tab, c.id);
       if (!confirm('“' + c.name + '” 카테고리를 삭제할까요?' + (n ? '\n이 카테고리의 기록 ' + n + '개는 “미분류”로 옮겨져요.' : ''))) return;
       records(tab).forEach(function (r) { if (r.catId === c.id) { r.catId = ''; r.subId = ''; } });
+      markRemoved(c.id); c.children.forEach(function (x) { markRemoved(x.id); });
       S.categories[tab] = S.categories[tab].filter(function (x) { return x.id !== c.id; });
       ui[tab].cat = 'all'; ui[tab].sub = 'all';
     } else if (act === 'subAdd') {
@@ -540,6 +546,7 @@
       var s2 = findSub(c, d.sub), n2 = usedBy(tab, c.id, s2.id);
       if (!confirm('“' + s2.name + '”을(를) 삭제할까요?' + (n2 ? '\n이 세부 분류의 기록 ' + n2 + '개는 세부 분류 없이 남아요.' : ''))) return;
       records(tab).forEach(function (r) { if (r.catId === c.id && r.subId === s2.id) r.subId = ''; });
+      markRemoved(s2.id);
       c.children = c.children.filter(function (x) { return x.id !== s2.id; });
       ui[tab].sub = 'all';
     }
@@ -635,6 +642,133 @@
     fr.readAsText(file);
   }
 
+  /* ---------- Supabase 동기화 ----------
+     공개(publishable) 키만 쓴다. 정책상 누구나 읽기·등록만 되고 수정·삭제는 안 된다.
+     그래서 ① 새 기록만 올리고(이미 있는 id는 건너뜀) ② 서버에만 있는 기록은 내려받아 합친다.
+     수정·삭제는 이 기기에만 반영된다. */
+  var SB = window.SUPABASE_CONFIG || {}, syncTimer = null, syncing = false, syncAgain = false;
+
+  function setSync(msg) { var n = $('#syncNote'); if (n) n.textContent = msg; }
+  function sbFetch(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ apikey: SB.key, 'Content-Type': 'application/json' }, opts.headers || {});
+    return fetch(SB.url + '/rest/v1/' + path, opts).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + ' ' + t); });
+      return r.text().then(function (t) { return t ? JSON.parse(t) : null; });
+    });
+  }
+  function okDate(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null; }
+  function numOrNull(v) { var n = parseFloat(v); return isNaN(n) ? null : n; }
+
+  function catRows() {
+    var rows = [];
+    ['exercise', 'music', 'travel'].forEach(function (tab) {
+      S.categories[tab].forEach(function (c, i) {
+        rows.push({ id: c.id, tab: tab, parent_id: null, name: c.name, sort_order: i });
+        c.children.forEach(function (s, j) { rows.push({ id: s.id, tab: tab, parent_id: c.id, name: s.name, sort_order: j }); });
+      });
+    });
+    return rows;
+  }
+  function recordRows() {
+    var ids = {};
+    ['exercise', 'music', 'travel'].forEach(function (tab) {
+      S.categories[tab].forEach(function (c) { ids[c.id] = 1; c.children.forEach(function (s) { ids[s.id] = 1; }); });
+    });
+    function ref(id) { return id && ids[id] ? id : null; }
+    return {
+      exercise_logs: S.exercise.filter(function (r) { return !r.sample && Number(r.min) > 0 && okDate(r.date); }).map(function (r) {
+        return { id: r.id, log_date: r.date, cat_id: ref(r.catId), sub_id: ref(r.subId), minutes: Math.round(Number(r.min)), memo: r.memo || '' };
+      }),
+      songs: S.songs.filter(function (r) { return !r.sample && r.title; }).map(function (r) {
+        return { id: r.id, title: r.title, artist: r.artist || '', mastered_on: okDate(r.date), cat_id: ref(r.catId), sub_id: ref(r.subId),
+                 youtube_url: r.youtube || '', sheet_url: r.sheet || '', memo: r.memo || '' };
+      }),
+      trips: S.trips.filter(function (r) { return !r.sample && r.place && (r.status === 'done' || r.status === 'want'); }).map(function (r) {
+        var la = numOrNull(r.lat), ln = numOrNull(r.lng);
+        if (la !== null && Math.abs(la) > 90) la = null;
+        if (ln !== null && Math.abs(ln) > 180) ln = null;
+        return { id: r.id, status: r.status, place: r.place, visited_on: okDate(r.date), when_text: r.when || '',
+                 rating: Math.min(5, Math.max(0, Number(r.rating) || 0)), cat_id: ref(r.catId), sub_id: ref(r.subId),
+                 lat: la, lng: ln, review: r.review || '', photos: r.photos || [], links: r.links || [] };
+      })
+    };
+  }
+  function insertRows(table, rows) {
+    if (!rows.length) return Promise.resolve();
+    return sbFetch(table + '?on_conflict=id', {
+      method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(rows)
+    });
+  }
+  function push() {
+    var rr = recordRows(), failed = 0;
+    return insertRows('categories', catRows()).then(function () {
+      return ['exercise_logs', 'songs', 'trips'].reduce(function (p, t) {
+        return p.then(function () { return insertRows(t, rr[t]); }).catch(function (e) { failed++; console.warn(t, e); });
+      }, Promise.resolve());
+    }).then(function () { if (failed) throw new Error(failed + '개 표를 올리지 못했어요'); });
+  }
+  function pull() {
+    var tables = ['categories', 'exercise_logs', 'songs', 'trips'];
+    return Promise.all(tables.map(function (t) { return sbFetch(t + '?select=*&order=created_at.asc&limit=5000'); })).then(function (res) {
+      var gone = {}, map = {}, add = 0, have = {};
+      (S.removed || []).forEach(function (id) { gone[id] = 1; });
+      var cats = res[0] || [];
+      var byOrder = function (a, b) { return a.sort_order - b.sort_order; };
+      cats.filter(function (r) { return !r.parent_id && !gone[r.id] && S.categories[r.tab]; }).sort(byOrder).forEach(function (r) {
+        var c = findCat(r.tab, r.id) || S.categories[r.tab].filter(function (x) { return x.name === r.name; })[0];
+        if (!c) { c = { id: r.id, name: r.name, children: [] }; S.categories[r.tab].push(c); add++; }
+        map[r.id] = c.id;
+      });
+      cats.filter(function (r) { return r.parent_id && !gone[r.id] && map[r.parent_id]; }).sort(byOrder).forEach(function (r) {
+        var c = findCat(r.tab, map[r.parent_id]);
+        var s = findSub(c, r.id) || c.children.filter(function (x) { return x.name === r.name; })[0];
+        if (!s) { s = { id: r.id, name: r.name }; c.children.push(s); add++; }
+        map[r.id] = s.id;
+      });
+      function lk(id) { return id ? (map[id] || '') : ''; }
+      ['exercise', 'songs', 'trips'].forEach(function (k) { (S[k] || []).forEach(function (r) { have[r.id] = 1; }); });
+      function fresh(r) { return !r.is_sample && !gone[r.id] && !have[r.id]; }
+      (res[1] || []).filter(fresh).forEach(function (r) {
+        S.exercise.push({ id: r.id, date: r.log_date, catId: lk(r.cat_id), subId: lk(r.sub_id), min: r.minutes, memo: r.memo || '' }); add++;
+      });
+      (res[2] || []).filter(fresh).forEach(function (r) {
+        S.songs.push({ id: r.id, title: r.title, artist: r.artist || '', date: r.mastered_on || '', catId: lk(r.cat_id), subId: lk(r.sub_id),
+                       youtube: r.youtube_url || '', sheet: r.sheet_url || '', memo: r.memo || '' }); add++;
+      });
+      (res[3] || []).filter(fresh).forEach(function (r) {
+        S.trips.push({ id: r.id, status: r.status, place: r.place, date: r.visited_on || '', when: r.when_text || '', rating: r.rating || 0,
+                       catId: lk(r.cat_id), subId: lk(r.sub_id), lat: r.lat == null ? '' : r.lat, lng: r.lng == null ? '' : r.lng,
+                       review: r.review || '', photos: r.photos || [], links: r.links || [] }); add++;
+      });
+      if (add) { saveLocal(); renderAll(); }
+      return add;
+    });
+  }
+  function scheduleSync() {
+    if (!SB.url || !SB.key) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () { syncNow(false, false); }, 1500);
+  }
+  function syncNow(withPull, manual) {
+    if (!SB.url || !SB.key) return;
+    if (syncing) { syncAgain = true; return; }
+    syncing = true; setSync('Supabase와 동기화 중…');
+    (withPull ? pull() : Promise.resolve(0))
+      .then(function (n) { return push().then(function () { return n; }); })
+      .then(function (n) {
+        var d = new Date();
+        setSync('Supabase 동기화됨 · ' + pad(d.getHours()) + ':' + pad(d.getMinutes()));
+        if (manual) toast(n ? '서버 기록 ' + n + '건을 가져왔어요' : '동기화했어요');
+      })
+      .catch(function (e) {
+        console.warn(e);
+        setSync('Supabase 동기화 실패 — 기록은 이 기기에 저장돼 있어요');
+        if (manual) toast('동기화하지 못했어요');
+      })
+      .then(function () { syncing = false; if (syncAgain) { syncAgain = false; scheduleSync(); } });
+  }
+
   /* ---------- 이벤트 ---------- */
   document.addEventListener('click', function (e) {
     var nav = e.target.closest('.nav button');
@@ -662,6 +796,7 @@
         var rec = find(tab, id); if (!rec) break;
         if (!confirm('이 기록을 삭제할까요? 되돌릴 수 없어요.')) break;
         var list = records(tab); list.splice(list.indexOf(rec), 1);
+        markRemoved(rec.id);
         save(); render(tab); toast('삭제했어요'); break;
       }
       case 'markDone': {
@@ -680,6 +815,7 @@
       case 'catAdd': case 'catRename': case 'catDel': case 'subAdd': case 'subRename': case 'subDel':
         catAction(act, { tab: tab, id: id, sub: el.dataset.sub }); break;
       case 'export': exportData(); break;
+      case 'sync': syncNow(true, true); break;
       case 'import': $('#importFile').click(); break;
       case 'clearSamples':
         if (!confirm('“예시” 표시가 붙은 기록을 모두 지울까요? (직접 입력한 기록은 그대로예요)')) break;
@@ -699,6 +835,7 @@
   load();
   renderAll();
   renderBackup();
+  syncNow(true, false);
   var startTab = 'exercise';
   try { startTab = localStorage.getItem(KEY + '.tab') || 'exercise'; } catch (e) { /* 무시 */ }
   showTab(TITLES[startTab] ? startTab : 'exercise');
