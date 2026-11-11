@@ -272,7 +272,7 @@
     var wait = aiLogAdd('ai', '일정을 고치는 중…');
     ensureToken().then(function (tok) {
       if (!tok) throw new Error('로그인이 만료됐어요. 다시 로그인해 주세요');
-      return fetch('/api/ai-plan', {
+      return fetch((/(^|\.)vercel\.app$/.test(location.hostname) ? '' : 'https://jjang-site.vercel.app') + '/api/ai-plan', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
         body: JSON.stringify({ place: t.place, when: t.when || t.date || '', plan: aiPlanText(t), message: msg, history: aiChat.history })

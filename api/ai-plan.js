@@ -16,6 +16,11 @@ var SYSTEM = [
 ].join('\n');
 
 module.exports = async function handler(req, res) {
+  /* GitHub Pages 등 다른 주소의 화면에서도 부를 수 있게 한다. 로그인 토큰이 없으면 어차피 거절된다. */
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'POST만 가능해요' }); }
   var key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY 환경 변수가 Vercel에 설정되지 않았어요' });
