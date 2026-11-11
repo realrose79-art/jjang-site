@@ -188,7 +188,7 @@
           }).join('') + '</select>';
         } else {
           h += '<input name="' + f.k + '" type="' + f.type + '" value="' + esc(v) + '" placeholder="' + esc(f.ph || '') + '"' +
-               (f.req ? ' required' : '') + (f.step ? ' step="' + f.step + '"' : '') + (f.min != null ? ' min="' + f.min + '"' : '') + '>';
+               (f.req ? ' required' : '') + (f.im ? ' inputmode="' + f.im + '" autocomplete="off"' : '') + (f.step ? ' step="' + f.step + '"' : '') + (f.min != null ? ' min="' + f.min + '"' : '') + '>';
         }
         h += (f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '') + '</label>';
       }
@@ -225,6 +225,81 @@
     if (!dlg.open) dlg.showModal();
   }
   function closeDlg() { var d = $('#dlg'); if (d.open) d.close(); }
+
+  /* ---------- AI 추천 일정 ---------- */
+  function aiPlan(t) {
+    var plans = window.AI_PLANS || [];
+    for (var i = 0; i < plans.length; i++) if (plans[i].match.test(t.place || '')) return plans[i];
+    return null;
+  }
+  /* 아주 작은 마크다운 변환: ## 제목, - 항목, **굵게** 만 지원 (먼저 esc로 안전하게 만든 뒤 변환) */
+  function mdHtml(md) {
+    var out = '', inList = false;
+    String(md || '').split(/\r?\n/).forEach(function (line) {
+      var s = esc(line).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'), m;
+      if ((m = /^#{1,4}\s+(.*)$/.exec(s))) { if (inList) { out += '</ul>'; inList = false; } out += '<h3>' + m[1] + '</h3>'; }
+      else if ((m = /^\s*[-*]\s+(.*)$/.exec(s))) { if (!inList) { out += '<ul>'; inList = true; } out += '<li>' + m[1] + '</li>'; }
+      else if (s.trim()) { if (inList) { out += '</ul>'; inList = false; } out += '<p>' + s + '</p>'; }
+    });
+    return out + (inList ? '</ul>' : '');
+  }
+  var aiChat = { id: null, history: [], busy: false };
+  function aiPlanText(t) { var p = aiPlan(t); return t.aiPlan || (p ? p.md : ''); }
+  function showAiPlan(t) {
+    var p = aiPlan(t); if (!p) return;
+    aiChat = { id: t.id, history: [], busy: false };
+    $('#dlgForm').innerHTML = '<h2>✨ AI추천 · ' + esc(p.title) + '</h2>' +
+      '<p class="ai-note">⚠ AI가 만든 추천이에요. 식당 이름·영업 여부는 구글맵 리뷰로 꼭 확인하세요.</p>' +
+      '<div class="aiplan" id="aiPlanBox">' + mdHtml(aiPlanText(t)) + '</div>' +
+      '<div class="aichat" id="aiLog"></div>' +
+      '<div class="aiask"><textarea id="aiMsg" rows="2" placeholder="예) 3일차에 호이안 야시장을 넣고 마사지는 빼줘 / 아이 동반이라 바나힐 대신 쉬운 코스로"></textarea>' +
+      '<button type="button" class="btn primary" data-act="aiSend">보내기</button></div>' +
+      '<div class="end"><button type="button" class="btn small ghost" data-act="aiReset">처음 추천으로 되돌리기</button>' +
+      '<button type="button" class="btn" data-act="dlgClose">닫기</button></div>';
+    var d = $('#dlg'); if (!d.open) d.showModal();
+  }
+  function aiLogAdd(who, text) {
+    var log = $('#aiLog'); if (!log) return null;
+    var n = document.createElement('div'); n.className = 'bub ' + who; n.textContent = text;
+    log.appendChild(n); log.scrollTop = log.scrollHeight; return n;
+  }
+  function aiSend() {
+    var t = find('travel', aiChat.id), box = $('#aiMsg');
+    if (!t || !box || aiChat.busy) return;
+    var msg = box.value.trim(); if (!msg) return;
+    if (!session) { toast('로그인해야 AI에게 물어볼 수 있어요'); return; }
+    aiChat.busy = true; box.value = ''; aiLogAdd('me', msg);
+    var wait = aiLogAdd('ai', '일정을 고치는 중…');
+    ensureToken().then(function (tok) {
+      if (!tok) throw new Error('로그인이 만료됐어요. 다시 로그인해 주세요');
+      return fetch(SB.url + '/functions/v1/ai-plan', {
+        method: 'POST',
+        headers: { apikey: SB.key, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ place: t.place, when: t.when || t.date || '', plan: aiPlanText(t), message: msg, history: aiChat.history })
+      });
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok || j.error) throw new Error(j.error || j.message || ('HTTP ' + r.status));
+        return j;
+      });
+    }).then(function (j) {
+      aiChat.history.push({ role: 'user', text: msg }, { role: 'model', text: j.reply });
+      if (wait) wait.textContent = j.reply;
+      if (j.plan && j.plan !== aiPlanText(t)) {
+        t.aiPlan = j.plan; save();
+        var pb = $('#aiPlanBox'); if (pb) pb.innerHTML = mdHtml(j.plan);
+        toast('일정을 업데이트하고 저장했어요');
+      }
+    }).catch(function (e) {
+      if (wait) { wait.textContent = '⚠ ' + e.message; wait.className = 'bub err'; }
+    }).then(function () { aiChat.busy = false; });
+  }
+  function aiReset() {
+    var t = find('travel', aiChat.id), p = t && aiPlan(t);
+    if (!p || !confirm('대화로 고친 내용이 사라지고 처음 추천으로 돌아가요. 되돌릴까요?')) return;
+    t.aiPlan = ''; save();
+    $('#aiPlanBox').innerHTML = mdHtml(p.md); toast('처음 추천으로 되돌렸어요');
+  }
 
   /* ---------- 운동 ---------- */
   function weekDays() {
@@ -395,7 +470,8 @@
       (t.review ? '<div class="m">' + esc(t.review) + '</div>' : '') +
       (photos ? '<div class="photos">' + photos + '</div>' : '') +
       (links ? '<div class="linklist">' + links + '</div>' : '') +
-      '<div class="bottom"><div>' + (done ? '' : '<button class="pill" data-act="markDone" data-id="' + t.id + '">다녀왔어요로 옮기기</button>') + '</div>' +
+      '<div class="bottom"><div>' + (done ? '' : '<button class="pill" data-act="markDone" data-id="' + t.id + '">다녀왔어요로 옮기기</button>') +
+      (!done && aiPlan(t) ? ' <button class="pill ai" data-act="aiPlan" data-id="' + t.id + '">✨ AI추천</button>' : '') + '</div>' +
       actsHtml('travel', t.id) + '</div></div></article>';
   }
 
@@ -642,16 +718,116 @@
     fr.readAsText(file);
   }
 
-  /* ---------- Supabase 동기화 ----------
-     공개(publishable) 키만 쓴다. 정책상 누구나 읽기·등록만 되고 수정·삭제는 안 된다.
-     그래서 ① 새 기록만 올리고(이미 있는 id는 건너뜀) ② 서버에만 있는 기록은 내려받아 합친다.
-     수정·삭제는 이 기기에만 반영된다. */
-  var SB = window.SUPABASE_CONFIG || {}, syncTimer = null, syncing = false, syncAgain = false;
+  /* ---------- Supabase 로그인·동기화 ----------
+     읽기는 누구나 되고, 서버에 쓰는 것(등록·수정·삭제)은 본인 계정으로 로그인했을 때만 된다.
+     - 마지막 동기화 때 내용(base)과 비교해서 "이 기기에서 바뀐 것"만 올린다.
+     - 서버에서 바뀌고 이 기기는 그대로인 기록은 서버 값을 따른다. 둘 다 바뀌었으면 이 기기 값이 이긴다.
+     - 삭제는 서버에 deleted_at 표시로 남겨서 다른 기기에도 전달한다.
+     화면 코드에는 공개(publishable) 키만 쓴다. */
+  var SB = window.SUPABASE_CONFIG || {};
+  var SES_KEY = KEY + '.session', BASE_KEY = KEY + '.base';
+  var session = null, base = {}, catIds = {}, curTok = null, preferServer = false;
+  var syncTimer = null, syncing = false, syncAgain = false;
+  try { session = JSON.parse(localStorage.getItem(SES_KEY) || 'null'); } catch (e) { session = null; }
+  try { base = JSON.parse(localStorage.getItem(BASE_KEY) || '{}') || {}; } catch (e) { base = {}; }
 
+  function saveBase() { try { localStorage.setItem(BASE_KEY, JSON.stringify(base)); } catch (e) { /* 무시 */ } }
   function setSync(msg) { var n = $('#syncNote'); if (n) n.textContent = msg; }
+  function renderAuth() {
+    var b = $('#authBtn');
+    if (b) b.textContent = session ? '로그아웃' : '로그인';
+    if (!syncing) {
+      setSync(session
+        ? (session.email ? session.email + ' 로 로그인됨' : '로그인됨')
+        : '로그아웃 상태예요. 기록은 이 기기에만 저장돼요. 로그인하면 서버에 저장돼서 다른 기기에서도 볼 수 있어요.');
+    }
+  }
+
+  /* --- 회원가입·로그인 (Supabase Auth, 이메일+비밀번호) --- */
+  function authPost(path, body) {
+    return fetch(SB.url + '/auth/v1/' + path, {
+      method: 'POST', headers: { apikey: SB.key, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error(j.msg || j.error_description || j.message || ('HTTP ' + r.status)); e.code = j.error_code || j.code || ''; throw e; }
+        return j;
+      });
+    });
+  }
+  function authMsg(e) {
+    var c = e && e.code, m = (e && e.message) || '';
+    if (c === 'invalid_credentials') return '이메일 또는 비밀번호가 맞지 않아요';
+    if (c === 'email_not_confirmed') return '메일로 보낸 확인 링크를 먼저 눌러 주세요';
+    if (c === 'user_already_exists' || /already registered/i.test(m)) return '이미 가입된 이메일이에요. 로그인해 보세요';
+    if (c === 'weak_password' || /password/i.test(m)) return '비밀번호는 6자 이상으로 해 주세요';
+    if (c === 'over_email_send_rate_limit' || c === 'over_request_rate_limit') return '잠시 후 다시 시도해 주세요';
+    return '처리하지 못했어요. 잠시 후 다시 시도해 주세요';
+  }
+  function setSession(j, email) {
+    if (j) {
+      session = { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in - 60) * 1000,
+                  email: email || (j.user && j.user.email) || (session && session.email) || '' };
+    } else {
+      session = null; base = {};
+      try { localStorage.removeItem(BASE_KEY); } catch (e) { /* 무시 */ }
+    }
+    try { if (session) localStorage.setItem(SES_KEY, JSON.stringify(session)); else localStorage.removeItem(SES_KEY); } catch (e) { /* 무시 */ }
+    renderAuth();
+  }
+  function login(email, pw) {
+    return authPost('token?grant_type=password', { email: email, password: pw }).then(function (j) { setSession(j, email); });
+  }
+  function signup(email, pw) {
+    return authPost('signup', { email: email, password: pw }).then(function (j) {
+      if (j.access_token) { setSession(j, email); return true; }   /* 메일 확인을 끈 경우: 바로 로그인됨 */
+      return false;                                                /* 메일 확인이 필요한 경우 */
+    });
+  }
+  function ensureToken() {
+    if (!session) return Promise.resolve(null);
+    if (Date.now() < session.exp) return Promise.resolve(session.access);
+    return authPost('token?grant_type=refresh_token', { refresh_token: session.refresh })
+      .then(function (j) { setSession(j); return session.access; })
+      .catch(function () { setSession(null); return null; });
+  }
+  function authDialog() {
+    if (session) {
+      if (confirm('로그아웃할까요?\n이 기기에 저장된 기록은 남지만, 로그아웃하면 서버에 올라가지 않아요.')) { setSession(null); toast('로그아웃했어요'); }
+      return;
+    }
+    var form = $('#dlgForm'), dlg = $('#dlg');
+    form.innerHTML = '<h2>로그인 · 회원가입</h2>' +
+      '<label>이메일<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>' +
+      '<label>비밀번호<input name="pw" type="password" required minlength="6" autocomplete="current-password">' +
+      '<span class="hint">6자 이상. 처음이면 “회원가입”을 누르세요.</span></label>' +
+      '<div class="end"><button type="button" class="btn ghost" data-act="dlgClose">취소</button>' +
+      '<button type="button" class="btn" data-act="signup">회원가입</button>' +
+      '<button type="submit" class="btn primary">로그인</button></div>';
+    form.onsubmit = function (e) { e.preventDefault(); doAuth('login'); };
+    if (!dlg.open) dlg.showModal();
+  }
+  function doAuth(mode) {
+    var form = $('#dlgForm');
+    if (!form.reportValidity()) return;
+    var email = form.elements.email.value.trim(), pw = form.elements.pw.value;
+    if (mode === 'signup') {
+      signup(email, pw).then(function (loggedIn) {
+        closeDlg();
+        if (loggedIn) { toast('가입하고 로그인했어요'); syncNow(true, true); }
+        else toast('확인 메일을 보냈어요. 메일의 링크를 누른 뒤 로그인해 주세요');
+      }).catch(function (e) { console.warn(e); toast(authMsg(e)); });
+    } else {
+      login(email, pw).then(function () { closeDlg(); toast('로그인했어요'); syncNow(true, true); })
+        .catch(function (e) { console.warn(e); toast(authMsg(e)); });
+    }
+  }
+
+  /* --- 서버 통신 --- */
   function sbFetch(path, opts) {
     opts = opts || {};
-    opts.headers = Object.assign({ apikey: SB.key, 'Content-Type': 'application/json' }, opts.headers || {});
+    var h = { apikey: SB.key, 'Content-Type': 'application/json' };
+    if (curTok) h.Authorization = 'Bearer ' + curTok;
+    opts.headers = Object.assign(h, opts.headers || {});
     return fetch(SB.url + '/rest/v1/' + path, opts).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + ' ' + t); });
       return r.text().then(function (t) { return t ? JSON.parse(t) : null; });
@@ -659,10 +835,20 @@
   }
   function okDate(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null; }
   function numOrNull(v) { var n = parseFloat(v); return isNaN(n) ? null : n; }
+  function nul(v) { return v || null; }
 
+  /* --- 카테고리 --- */
+  var TABS = ['exercise', 'music', 'travel'];
+  function refreshCatIds() {
+    catIds = {};
+    TABS.forEach(function (t) {
+      S.categories[t].forEach(function (c) { catIds[c.id] = 1; c.children.forEach(function (s) { catIds[s.id] = 1; }); });
+    });
+  }
+  function cid(id) { return id && catIds[id] ? id : ''; }
   function catRows() {
     var rows = [];
-    ['exercise', 'music', 'travel'].forEach(function (tab) {
+    TABS.forEach(function (tab) {
       S.categories[tab].forEach(function (c, i) {
         rows.push({ id: c.id, tab: tab, parent_id: null, name: c.name, sort_order: i });
         c.children.forEach(function (s, j) { rows.push({ id: s.id, tab: tab, parent_id: c.id, name: s.name, sort_order: j }); });
@@ -670,103 +856,220 @@
     });
     return rows;
   }
-  function recordRows() {
-    var ids = {};
-    ['exercise', 'music', 'travel'].forEach(function (tab) {
-      S.categories[tab].forEach(function (c) { ids[c.id] = 1; c.children.forEach(function (s) { ids[s.id] = 1; }); });
+  function catHash(r) { return JSON.stringify([r.tab, r.parent_id || null, r.name]); }
+  function eachRecord(fn) { ['exercise', 'songs', 'trips'].forEach(function (k) { (S[k] || []).forEach(fn); }); }
+  function unref(id) {
+    eachRecord(function (r) {
+      if (r.catId === id) { r.catId = ''; r.subId = ''; }
+      if (r.subId === id) r.subId = '';
     });
-    function ref(id) { return id && ids[id] ? id : null; }
-    return {
-      exercise_logs: S.exercise.filter(function (r) { return !r.sample && Number(r.min) > 0 && okDate(r.date); }).map(function (r) {
-        return { id: r.id, log_date: r.date, cat_id: ref(r.catId), sub_id: ref(r.subId), minutes: Math.round(Number(r.min)), memo: r.memo || '' };
-      }),
-      songs: S.songs.filter(function (r) { return !r.sample && r.title; }).map(function (r) {
-        return { id: r.id, title: r.title, artist: r.artist || '', mastered_on: okDate(r.date), cat_id: ref(r.catId), sub_id: ref(r.subId),
+  }
+  /* 다른 기기에서 같은 이름으로 만든 분류는 서버의 id로 통일한다. */
+  function adoptId(oldId, newId) {
+    if (oldId === newId) return;
+    TABS.forEach(function (t) {
+      S.categories[t].forEach(function (c) {
+        if (c.id === oldId) c.id = newId;
+        c.children.forEach(function (s) { if (s.id === oldId) s.id = newId; });
+      });
+    });
+    eachRecord(function (r) { if (r.catId === oldId) r.catId = newId; if (r.subId === oldId) r.subId = newId; });
+  }
+  function removeCatById(id) {
+    var hit = false;
+    TABS.forEach(function (t) {
+      S.categories[t] = S.categories[t].filter(function (c) {
+        if (c.id === id) { hit = true; unref(id); c.children.forEach(function (s) { unref(s.id); }); return false; }
+        var n = c.children.length;
+        c.children = c.children.filter(function (s) { return s.id !== id; });
+        if (c.children.length !== n) { hit = true; unref(id); }
+        return true;
+      });
+    });
+    return hit;
+  }
+  function reconcileCats(rows, gone) {
+    var changed = 0, byOrder = function (a, b) { return a.sort_order - b.sort_order; };
+    rows.filter(function (r) { return r.deleted_at; }).forEach(function (r) {
+      if (removeCatById(r.id)) changed++;
+      delete base['categories:' + r.id];
+    });
+    var live = rows.filter(function (r) { return !r.deleted_at && !gone[r.id] && S.categories[r.tab]; });
+    function take(obj, r) {
+      var key = 'categories:' + r.id, sh = catHash(r);
+      var lh = catHash({ tab: r.tab, parent_id: r.parent_id, name: obj.name });
+      if (lh === sh) { base[key] = sh; return; }
+      if (base[key] === lh || (base[key] === undefined && preferServer)) { obj.name = r.name; base[key] = sh; changed++; }
+    }
+    live.filter(function (r) { return !r.parent_id; }).sort(byOrder).forEach(function (r) {
+      var list = S.categories[r.tab], c = findCat(r.tab, r.id);
+      if (!c) { c = list.filter(function (x) { return x.name === r.name; })[0]; if (c) { adoptId(c.id, r.id); changed++; } }
+      if (!c) { list.push({ id: r.id, name: r.name, children: [] }); base['categories:' + r.id] = catHash(r); changed++; }
+      else take(c, r);
+    });
+    live.filter(function (r) { return r.parent_id; }).sort(byOrder).forEach(function (r) {
+      var p = findCat(r.tab, r.parent_id); if (!p) return;
+      var s = findSub(p, r.id);
+      if (!s) { s = p.children.filter(function (x) { return x.name === r.name; })[0]; if (s) { adoptId(s.id, r.id); changed++; } }
+      if (!s) { p.children.push({ id: r.id, name: r.name }); base['categories:' + r.id] = catHash(r); changed++; }
+      else take(s, r);
+    });
+    return changed;
+  }
+
+  /* --- 기록 (서버 행 <-> 이 앱의 기록) --- */
+  var KINDS = {
+    exercise_logs: {
+      list: function () { return S.exercise; },
+      toRow: function (r) {
+        if (r.sample || !(Number(r.min) > 0) || !okDate(r.date)) return null;
+        return { id: r.id, log_date: r.date, cat_id: nul(cid(r.catId)), sub_id: nul(cid(r.subId)), minutes: Math.round(Number(r.min)), memo: r.memo || '' };
+      },
+      fromRow: function (r) { return { id: r.id, date: r.log_date, catId: cid(r.cat_id), subId: cid(r.sub_id), min: r.minutes, memo: r.memo || '' }; }
+    },
+    songs: {
+      list: function () { return S.songs; },
+      toRow: function (r) {
+        if (r.sample || !r.title) return null;
+        return { id: r.id, title: r.title, artist: r.artist || '', mastered_on: okDate(r.date), cat_id: nul(cid(r.catId)), sub_id: nul(cid(r.subId)),
                  youtube_url: r.youtube || '', sheet_url: r.sheet || '', memo: r.memo || '' };
-      }),
-      trips: S.trips.filter(function (r) { return !r.sample && r.place && (r.status === 'done' || r.status === 'want'); }).map(function (r) {
+      },
+      fromRow: function (r) {
+        return { id: r.id, title: r.title, artist: r.artist || '', date: r.mastered_on || '', catId: cid(r.cat_id), subId: cid(r.sub_id),
+                 youtube: r.youtube_url || '', sheet: r.sheet_url || '', memo: r.memo || '' };
+      }
+    },
+    trips: {
+      list: function () { return S.trips; },
+      toRow: function (r) {
+        if (r.sample || !r.place || (r.status !== 'done' && r.status !== 'want')) return null;
         var la = numOrNull(r.lat), ln = numOrNull(r.lng);
         if (la !== null && Math.abs(la) > 90) la = null;
         if (ln !== null && Math.abs(ln) > 180) ln = null;
         return { id: r.id, status: r.status, place: r.place, visited_on: okDate(r.date), when_text: r.when || '',
-                 rating: Math.min(5, Math.max(0, Number(r.rating) || 0)), cat_id: ref(r.catId), sub_id: ref(r.subId),
-                 lat: la, lng: ln, review: r.review || '', photos: r.photos || [], links: r.links || [] };
-      })
-    };
+                 rating: Math.min(5, Math.max(0, Number(r.rating) || 0)), cat_id: nul(cid(r.catId)), sub_id: nul(cid(r.subId)),
+                 lat: la, lng: ln, review: r.review || '', photos: r.photos || [], links: r.links || [], ai_plan: r.aiPlan || '' };
+      },
+      fromRow: function (r) {
+        return { id: r.id, status: r.status, place: r.place, date: r.visited_on || '', when: r.when_text || '', rating: r.rating || 0,
+                 catId: cid(r.cat_id), subId: cid(r.sub_id), lat: r.lat == null ? '' : r.lat, lng: r.lng == null ? '' : r.lng,
+                 review: r.review || '', photos: r.photos || [], links: r.links || [], aiPlan: r.ai_plan || '' };
+      }
+    }
+  };
+  function hashOf(table, row) { return table === 'categories' ? catHash(row) : JSON.stringify(row); }
+
+  function reconcile(table, kind, rows, gone) {
+    var list = kind.list(), idx = {}, changed = 0;
+    list.forEach(function (r) { idx[r.id] = r; });
+    rows.forEach(function (sr) {
+      var bk = table + ':' + sr.id, L = idx[sr.id];
+      if (sr.is_sample) return;
+      if (sr.deleted_at) {
+        if (L) { list.splice(list.indexOf(L), 1); changed++; }
+        delete base[bk]; return;
+      }
+      if (gone[sr.id]) return;
+      var incoming = kind.fromRow(sr), sh = JSON.stringify(kind.toRow(incoming));
+      if (!L) { list.push(incoming); base[bk] = sh; changed++; return; }
+      var lh = JSON.stringify(kind.toRow(L));
+      if (lh === sh) { base[bk] = sh; return; }
+      if (base[bk] === lh || (base[bk] === undefined && preferServer)) {
+        list[list.indexOf(L)] = incoming; base[bk] = sh; changed++;
+      }
+    });
+    return changed;
   }
-  function insertRows(table, rows) {
+
+  /* --- 서버 -> 이 기기 --- */
+  function pull() {
+    var tables = ['categories', 'exercise_logs', 'songs', 'trips'];
+    return Promise.all(tables.map(function (t) { return sbFetch(t + '?select=*&limit=5000'); })).then(function (res) {
+      var gone = {}, n = 0;
+      (S.removed || []).forEach(function (id) { gone[id] = 1; });
+      var cats = reconcileCats(res[0] || [], gone);
+      refreshCatIds();
+      ['exercise_logs', 'songs', 'trips'].forEach(function (t, i) { n += reconcile(t, KINDS[t], res[i + 1] || [], gone); });
+      if (cats + n) {
+        TABS.forEach(function (t) { ui[t].cat = 'all'; ui[t].sub = 'all'; });
+        saveLocal(); renderAll();
+      }
+      saveBase();
+      return cats + n;
+    });
+  }
+
+  /* --- 이 기기 -> 서버 (로그인했을 때만) --- */
+  function upsert(table, rows) {
     if (!rows.length) return Promise.resolve();
-    return sbFetch(table + '?on_conflict=id', {
-      method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(rows)
+    return sbFetch(table + '?on_conflict=user_id,id', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows)
+    }).then(function () { rows.forEach(function (r) { base[table + ':' + r.id] = hashOf(table, r); }); });
+  }
+  function pushRemoved() {
+    var ids = (S.removed || []).filter(function (v, i, a) { return a.indexOf(v) === i; });
+    if (!ids.length) return Promise.resolve();
+    var q = 'id=in.(' + ids.map(encodeURIComponent).join(',') + ')';
+    var body = JSON.stringify({ deleted_at: new Date().toISOString() });
+    return ['exercise_logs', 'songs', 'trips', 'categories'].reduce(function (p, t) {
+      return p.then(function () { return sbFetch(t + '?' + q, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: body }); });
+    }, Promise.resolve()).then(function () {
+      S.removed = (S.removed || []).filter(function (id) { return ids.indexOf(id) < 0; });
+      saveLocal();
     });
   }
   function push() {
-    var rr = recordRows(), failed = 0;
-    return insertRows('categories', catRows()).then(function () {
-      return ['exercise_logs', 'songs', 'trips'].reduce(function (p, t) {
-        return p.then(function () { return insertRows(t, rr[t]); }).catch(function (e) { failed++; console.warn(t, e); });
+    refreshCatIds();
+    var failed = 0;
+    var cats = catRows().filter(function (r) { return base['categories:' + r.id] !== catHash(r); });
+    return upsert('categories', cats).then(function () {
+      return Object.keys(KINDS).reduce(function (p, t) {
+        return p.then(function () {
+          var rows = [];
+          KINDS[t].list().forEach(function (r) {
+            var row = KINDS[t].toRow(r);
+            if (row && base[t + ':' + row.id] !== JSON.stringify(row)) rows.push(row);
+          });
+          return upsert(t, rows);
+        }).catch(function (e) { failed++; console.warn(t, e); });
       }, Promise.resolve());
-    }).then(function () { if (failed) throw new Error(failed + '개 표를 올리지 못했어요'); });
-  }
-  function pull() {
-    var tables = ['categories', 'exercise_logs', 'songs', 'trips'];
-    return Promise.all(tables.map(function (t) { return sbFetch(t + '?select=*&order=created_at.asc&limit=5000'); })).then(function (res) {
-      var gone = {}, map = {}, add = 0, have = {};
-      (S.removed || []).forEach(function (id) { gone[id] = 1; });
-      var cats = res[0] || [];
-      var byOrder = function (a, b) { return a.sort_order - b.sort_order; };
-      cats.filter(function (r) { return !r.parent_id && !gone[r.id] && S.categories[r.tab]; }).sort(byOrder).forEach(function (r) {
-        var c = findCat(r.tab, r.id) || S.categories[r.tab].filter(function (x) { return x.name === r.name; })[0];
-        if (!c) { c = { id: r.id, name: r.name, children: [] }; S.categories[r.tab].push(c); add++; }
-        map[r.id] = c.id;
-      });
-      cats.filter(function (r) { return r.parent_id && !gone[r.id] && map[r.parent_id]; }).sort(byOrder).forEach(function (r) {
-        var c = findCat(r.tab, map[r.parent_id]);
-        var s = findSub(c, r.id) || c.children.filter(function (x) { return x.name === r.name; })[0];
-        if (!s) { s = { id: r.id, name: r.name }; c.children.push(s); add++; }
-        map[r.id] = s.id;
-      });
-      function lk(id) { return id ? (map[id] || '') : ''; }
-      ['exercise', 'songs', 'trips'].forEach(function (k) { (S[k] || []).forEach(function (r) { have[r.id] = 1; }); });
-      function fresh(r) { return !r.is_sample && !gone[r.id] && !have[r.id]; }
-      (res[1] || []).filter(fresh).forEach(function (r) {
-        S.exercise.push({ id: r.id, date: r.log_date, catId: lk(r.cat_id), subId: lk(r.sub_id), min: r.minutes, memo: r.memo || '' }); add++;
-      });
-      (res[2] || []).filter(fresh).forEach(function (r) {
-        S.songs.push({ id: r.id, title: r.title, artist: r.artist || '', date: r.mastered_on || '', catId: lk(r.cat_id), subId: lk(r.sub_id),
-                       youtube: r.youtube_url || '', sheet: r.sheet_url || '', memo: r.memo || '' }); add++;
-      });
-      (res[3] || []).filter(fresh).forEach(function (r) {
-        S.trips.push({ id: r.id, status: r.status, place: r.place, date: r.visited_on || '', when: r.when_text || '', rating: r.rating || 0,
-                       catId: lk(r.cat_id), subId: lk(r.sub_id), lat: r.lat == null ? '' : r.lat, lng: r.lng == null ? '' : r.lng,
-                       review: r.review || '', photos: r.photos || [], links: r.links || [] }); add++;
-      });
-      if (add) { saveLocal(); renderAll(); }
-      return add;
+    }).then(pushRemoved).then(function () {
+      saveBase();
+      if (failed) throw new Error(failed + '개 표를 올리지 못했어요');
     });
   }
+
   function scheduleSync() {
-    if (!SB.url || !SB.key) return;
+    if (!SB.url || !SB.key || !session) return;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(function () { syncNow(false, false); }, 1500);
   }
   function syncNow(withPull, manual) {
     if (!SB.url || !SB.key) return;
     if (syncing) { syncAgain = true; return; }
-    syncing = true; setSync('Supabase와 동기화 중…');
-    (withPull ? pull() : Promise.resolve(0))
-      .then(function (n) { return push().then(function () { return n; }); })
-      .then(function (n) {
-        var d = new Date();
-        setSync('Supabase 동기화됨 · ' + pad(d.getHours()) + ':' + pad(d.getMinutes()));
-        if (manual) toast(n ? '서버 기록 ' + n + '건을 가져왔어요' : '동기화했어요');
-      })
-      .catch(function (e) {
-        console.warn(e);
-        setSync('Supabase 동기화 실패 — 기록은 이 기기에 저장돼 있어요');
-        if (manual) toast('동기화하지 못했어요');
-      })
-      .then(function () { syncing = false; if (syncAgain) { syncAgain = false; scheduleSync(); } });
+    syncing = true;
+    if (session) setSync('Supabase와 동기화 중…');
+    ensureToken().then(function (tok) {
+      curTok = tok;
+      if (!tok) return { n: 0, wrote: false };
+      /* 이 계정으로 동기화한 적이 없는 기기: 서버와 다른 기록은 서버 값을 따른다 */
+      preferServer = Object.keys(base).length === 0;
+      return (withPull ? pull() : Promise.resolve(0)).then(function (n) {
+        return push().then(function () { return { n: n, wrote: true }; });
+      });
+    }).then(function (r) {
+      var d = new Date();
+      if (r.wrote) setSync((session && session.email ? session.email + ' · ' : '') + '서버에 동기화됨 · ' + pad(d.getHours()) + ':' + pad(d.getMinutes()));
+      else { syncing = false; renderAuth(); }
+      if (manual) toast(r.n ? '서버 기록 ' + r.n + '건을 반영했어요' : (r.wrote ? '동기화했어요' : '로그인하면 서버에 저장돼요'));
+    }).catch(function (e) {
+      console.warn(e);
+      setSync('Supabase 동기화 실패 — 기록은 이 기기에 저장돼 있어요');
+      if (manual) toast('동기화하지 못했어요');
+    }).then(function () {
+      syncing = false;
+      if (syncAgain) { syncAgain = false; scheduleSync(); }
+    });
   }
 
   /* ---------- 이벤트 ---------- */
@@ -809,6 +1112,9 @@
         el.outerHTML = '<div class="thumb"><iframe src="https://www.youtube.com/embed/' + vid + '?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>';
         break;
       }
+      case 'aiPlan': showAiPlan(find('travel', id)); break;
+      case 'aiSend': aiSend(); break;
+      case 'aiReset': aiReset(); break;
       case 'geo': geoSearch(); break;
       case 'dlgClose': closeDlg(); break;
       case 'manageCats': manageCats(tab); break;
@@ -816,6 +1122,8 @@
         catAction(act, { tab: tab, id: id, sub: el.dataset.sub }); break;
       case 'export': exportData(); break;
       case 'sync': syncNow(true, true); break;
+      case 'auth': authDialog(); break;
+      case 'signup': doAuth('signup'); break;
       case 'import': $('#importFile').click(); break;
       case 'clearSamples':
         if (!confirm('“예시” 표시가 붙은 기록을 모두 지울까요? (직접 입력한 기록은 그대로예요)')) break;
@@ -835,6 +1143,7 @@
   load();
   renderAll();
   renderBackup();
+  renderAuth();
   syncNow(true, false);
   var startTab = 'exercise';
   try { startTab = localStorage.getItem(KEY + '.tab') || 'exercise'; } catch (e) { /* 무시 */ }

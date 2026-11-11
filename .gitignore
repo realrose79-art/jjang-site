@@ -1,6 +1,7 @@
 ﻿# 비밀 파일
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 secrets.*
