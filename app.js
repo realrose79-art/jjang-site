@@ -1161,6 +1161,18 @@
     e.target.value = '';
   });
 
+  /* 다른 기기·주소에서 바뀐 내용을 거의 실시간으로 가져온다.
+     화면이 보이는 동안 15초마다, 그리고 화면을 다시 볼 때 바로 확인한다.
+     입력·수정 창이 열려 있을 때는 기록을 바꾸지 않도록 건너뛴다. */
+  function autoPull() {
+    if (!session || syncing || document.visibilityState !== 'visible') return;
+    if ($('#dlg').open) return;
+    syncNow(true, false);
+  }
+  setInterval(autoPull, 15000);
+  document.addEventListener('visibilitychange', autoPull);
+  window.addEventListener('focus', autoPull);
+
   /* ---------- 시작 ---------- */
   load();
   renderAll();
