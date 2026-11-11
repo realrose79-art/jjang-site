@@ -18,6 +18,10 @@
     <p class="sub" id="heroLine"></p>
   </header>
 
+  <div class="backup-bar login-bar" id="loginBar" role="status" hidden>
+    <span>🔒 로그인하지 않았어요. 기록은 이 기기에만 저장돼요. <b>서버 저장·수정/삭제의 동기화·AI 추천 대화</b>는 로그인해야 돼요.</span>
+    <button class="btn small primary" data-act="auth">로그인</button>
+  </div>
   <div class="backup-bar" id="backupBar" role="status" hidden></div>
 
   <nav class="nav" id="nav">
@@ -53,7 +57,7 @@
   </main>
 
   <dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" popover="manual"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js"></script>

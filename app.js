@@ -63,7 +63,10 @@
     try { localStorage.setItem(KEY, JSON.stringify(S)); }
     catch (e) { toast('저장하지 못했어요. 브라우저 저장 설정을 확인해 주세요.'); }
   }
-  function save() { saveLocal(); scheduleSync(); }
+  function save() {
+    saveLocal(); scheduleSync();
+    if (appReady && !session && SB.url) localNote = true;
+  }
   /* 이 기기에서 지운 기록·카테고리 id. 서버에는 삭제 권한이 없어서, 불러올 때 되살아나지 않게 기억해 둔다. */
   function markRemoved(id) { (S.removed = S.removed || []).push(id); }
 
@@ -104,12 +107,22 @@
   }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
 
-  var toastTimer;
+  var toastTimer, hideTimer, localNote = false, appReady = false;
   function toast(msg) {
     var t = $('#toast');
-    t.textContent = msg; t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2400);
+    /* 로그인하지 않고 저장·수정·삭제한 직후의 안내에는 "이 기기에만 저장"을 덧붙인다 */
+    if (localNote) { msg += ' · 로그인 전이라 이 기기에만 저장돼요'; localNote = false; }
+    t.textContent = msg;
+    /* 입력·AI 창(모달)이 열려 있어도 가려지지 않도록, 화면 맨 위 레이어(popover)로 띄운다 */
+    try {
+      if (t.showPopover) { if (t.matches(':popover-open')) t.hidePopover(); t.showPopover(); }
+    } catch (e) { /* 지원하지 않으면 기존 방식 */ }
+    clearTimeout(hideTimer); clearTimeout(toastTimer);
+    t.classList.add('show');
+    toastTimer = setTimeout(function () {
+      t.classList.remove('show');
+      hideTimer = setTimeout(function () { try { if (t.matches(':popover-open')) t.hidePopover(); } catch (e) { /* 무시 */ } }, 300);
+    }, 3200);
   }
 
   /* ---------- 상태 ---------- */
@@ -250,6 +263,8 @@
     aiChat = { id: t.id, history: [], busy: false };
     $('#dlgForm').innerHTML = '<h2>✨ AI추천 · ' + esc(p.title) + '</h2>' +
       '<p class="ai-note">⚠ AI가 만든 추천이에요. 식당 이름·영업 여부는 구글맵 리뷰로 꼭 확인하세요.</p>' +
+      (session ? '' : '<p class="ai-note warn">🔒 AI에게 일정을 고쳐 달라고 하려면 <b>로그인</b>이 필요해요. 일정 보기만 로그인 없이 돼요. ' +
+        '<button type="button" class="btn small primary" data-act="auth">로그인</button></p>') +
       '<div class="aiplan" id="aiPlanBox">' + mdHtml(aiPlanText(t)) + '</div>' +
       '<div class="aichat" id="aiLog"></div>' +
       '<div class="aiask"><textarea id="aiMsg" rows="2" placeholder="예) 3일차에 호이안 야시장을 넣고 마사지는 빼줘 / 아이 동반이라 바나힐 대신 쉬운 코스로"></textarea>' +
@@ -267,7 +282,12 @@
     var t = find('travel', aiChat.id), box = $('#aiMsg');
     if (!t || !box || aiChat.busy) return;
     var msg = box.value.trim(); if (!msg) return;
-    if (!session) { toast('로그인해야 AI에게 물어볼 수 있어요'); return; }
+    if (!session) {
+      var lock = aiLogAdd('ai', '🔒 로그인해야 AI에게 물어볼 수 있어요. 위의 “로그인” 버튼을 눌러 주세요.');
+      if (lock) lock.className = 'bub err';
+      toast('로그인해야 AI에게 물어볼 수 있어요');
+      return;
+    }
     aiChat.busy = true; box.value = ''; aiLogAdd('me', msg);
     var wait = aiLogAdd('ai', '일정을 고치는 중…');
     ensureToken().then(function (tok) {
@@ -736,6 +756,8 @@
   function renderAuth() {
     var b = $('#authBtn');
     if (b) b.textContent = session ? '로그아웃' : '로그인';
+    var lb = $('#loginBar');
+    if (lb) lb.hidden = !!session || !SB.url;
     if (!syncing) {
       setSync(session
         ? (session.email ? session.email + ' 로 로그인됨' : '로그인됨')
@@ -1148,4 +1170,5 @@
   var startTab = 'exercise';
   try { startTab = localStorage.getItem(KEY + '.tab') || 'exercise'; } catch (e) { /* 무시 */ }
   showTab(TITLES[startTab] ? startTab : 'exercise');
+  appReady = true;
 })();
