@@ -48,20 +48,32 @@ module.exports = async function handler(req, res) {
 
   var model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   var ctx = '여행지: ' + place + (when ? ' (시기: ' + when + ')' : '') + '\n\n[현재 일정]\n' + (plan || '(아직 없음)') + '\n\n[요청]\n' + message;
+  var body = JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM }] },
+    contents: history.concat([{ role: 'user', parts: [{ text: ctx }] }]),
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.7 }
+  });
+  function call(m) {
+    return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(m) + ':generateContent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: body
+    }).then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { r: resp, data: d }; }); });
+  }
+  /* 일시적 과부하(429·5xx)면 잠깐 쉬고 다시, 그래도 안 되면 다른 모델로 시도한다. (Vercel 제한 시간 안에서) */
+  var tries = [model, model, process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash'];
   var r, data;
-  try {
-    r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: history.concat([{ role: 'user', parts: [{ text: ctx }] }]),
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.7 }
-      })
-    });
-    data = await r.json().catch(function () { return {}; });
-  } catch (e) { return res.status(502).json({ error: 'Gemini에 연결하지 못했어요' }); }
-  if (!r.ok) return res.status(502).json({ error: 'Gemini 호출 실패 (' + r.status + ') ' + ((data.error && data.error.message) || '') });
+  for (var i = 0; i < tries.length; i++) {
+    try { var out = await call(tries[i]); r = out.r; data = out.data; }
+    catch (e) { r = null; data = {}; }
+    if (r && r.ok) break;
+    if (r && r.status !== 429 && r.status < 500) break;
+    if (i < tries.length - 1) await new Promise(function (ok) { setTimeout(ok, i === 0 ? 800 : 300); });
+  }
+  if (!r) return res.status(502).json({ error: 'Gemini에 연결하지 못했어요. 잠시 후 다시 시도해 주세요' });
+  if (!r.ok) {
+    var busy = r.status === 429 || r.status >= 500;
+    return res.status(502).json({ error: busy ? 'AI가 지금 많이 붐벼요. 잠시 후 다시 보내 주세요 (' + r.status + ')'
+      : 'Gemini 호출 실패 (' + r.status + ') ' + ((data.error && data.error.message) || '') });
+  }
 
   var raw = ((data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [])
     .map(function (p) { return p.text || ''; }).join('');
