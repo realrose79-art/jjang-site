@@ -65,7 +65,6 @@
   }
   function save() {
     saveLocal(); scheduleSync();
-    if (appReady && !session && SB.url) localNote = true;
   }
   /* 이 기기에서 지운 기록·카테고리 id. 서버에는 삭제 권한이 없어서, 불러올 때 되살아나지 않게 기억해 둔다. */
   function markRemoved(id) { (S.removed = S.removed || []).push(id); }
@@ -107,11 +106,9 @@
   }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
 
-  var toastTimer, hideTimer, localNote = false, appReady = false;
+  var toastTimer, hideTimer, appReady = false;
   function toast(msg) {
     var t = $('#toast');
-    /* 로그인하지 않고 저장·수정·삭제한 직후의 안내에는 "이 기기에만 저장"을 덧붙인다 */
-    if (localNote) { msg += ' · 로그인 전이라 이 기기에만 저장돼요'; localNote = false; }
     t.textContent = msg;
     /* 입력·AI 창(모달)이 열려 있어도 가려지지 않도록, 화면 맨 위 레이어(popover)로 띄운다 */
     try {
@@ -775,11 +772,12 @@
     var b = $('#authBtn');
     if (b) b.textContent = session ? '로그아웃' : '로그인';
     var lb = $('#loginBar');
-    if (lb) lb.hidden = !!session || !SB.url;
+    if (lb) lb.hidden = !readOnly();
+    document.body.classList.toggle('readonly', readOnly());
     if (!syncing) {
       setSync(session
         ? (session.email ? session.email + ' 로 로그인됨' : '로그인됨')
-        : '로그아웃 상태예요. 기록은 이 기기에만 저장돼요. 로그인하면 서버에 저장돼서 다른 기기에서도 볼 수 있어요.');
+        : '로그인하지 않아 조회만 할 수 있어요. 입력·수정·삭제는 로그인한 뒤에 가능해요.');
     }
   }
 
@@ -830,13 +828,22 @@
       .then(function (j) { setSession(j); return session.access; })
       .catch(function () { setSession(null); return null; });
   }
-  function authDialog() {
+  /* 로그인하지 않으면 조회만 가능하다. (Supabase 설정이 없는 경우에는 제한하지 않는다.) */
+  function readOnly() { return !session && !!SB.url; }
+  var WRITE_ACTS = {
+    add: '기록을 입력하려면', edit: '기록을 수정하려면', del: '기록을 삭제하려면', markDone: '기록을 수정하려면',
+    manageCats: '카테고리를 바꾸려면', catAdd: '카테고리를 바꾸려면', catRename: '카테고리를 바꾸려면', catDel: '카테고리를 바꾸려면',
+    subAdd: '카테고리를 바꾸려면', subRename: '카테고리를 바꾸려면', subDel: '카테고리를 바꾸려면',
+    import: '백업을 불러오려면', clearSamples: '기록을 삭제하려면', aiReset: 'AI 일정을 되돌리려면'
+  };
+  function authDialog(why) {
     if (session) {
-      if (confirm('로그아웃할까요?\n이 기기에 저장된 기록은 남지만, 로그아웃하면 서버에 올라가지 않아요.')) { setSession(null); toast('로그아웃했어요'); }
+      if (confirm('로그아웃할까요?\n로그아웃하면 기록을 조회만 할 수 있어요.')) { setSession(null); toast('로그아웃했어요. 이제 조회만 가능해요'); }
       return;
     }
     var form = $('#dlgForm'), dlg = $('#dlg');
     form.innerHTML = '<h2>로그인 · 회원가입</h2>' +
+      (why ? '<p class="ai-note warn">🔒 ' + esc(why) + ' 로그인해 주세요. 조회는 로그인 없이 돼요.</p>' : '') +
       '<label>이메일<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>' +
       '<label>비밀번호<input name="pw" type="password" required minlength="6" autocomplete="current-password">' +
       '<span class="hint">6자 이상. 처음이면 “회원가입”을 누르세요.</span></label>' +
@@ -1120,6 +1127,9 @@
     var el = e.target.closest('[data-act]');
     if (!el) return;
     var act = el.dataset.act, tab = el.dataset.tab, id = el.dataset.id;
+
+    /* 입력·수정·삭제는 로그인해야 한다. 로그인하지 않았으면 로그인 창과 이유를 보여 준다. */
+    if (WRITE_ACTS[act] && readOnly()) { authDialog(WRITE_ACTS[act]); return; }
 
     switch (act) {
       case 'chip':

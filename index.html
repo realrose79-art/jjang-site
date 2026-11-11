@@ -19,7 +19,7 @@
   </header>
 
   <div class="backup-bar login-bar" id="loginBar" role="status" hidden>
-    <span>🔒 로그인 전이라 기록이 이 기기에만 저장돼요. <b>AI 추천 대화</b>도 로그인해야 해요.</span>
+    <span>🔒 지금은 <b>조회만</b> 가능해요. 기록 입력·수정·삭제와 AI 추천 대화는 로그인해야 해요.</span>
     <button class="btn small primary" data-act="auth">로그인</button>
   </div>
   <div class="backup-bar" id="backupBar" role="status" hidden></div>
@@ -50,7 +50,7 @@
       <button class="btn ghost small" data-act="sync">지금 동기화</button>
       <button class="btn ghost small" data-act="clearSamples">예시 데이터 지우기</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
-      <p class="note">기록은 이 기기와 Supabase에 저장돼요. 로그인하면 입력·수정·삭제가 서버에 올라가 다른 기기에서도 보여요. 가끔 백업 저장으로 파일을 남겨 두세요.</p>
+      <p class="note">조회는 로그인 없이 되고, 입력·수정·삭제는 로그인해야 해요. 로그인하면 기록이 서버에 저장돼 다른 기기에서도 보여요. 가끔 백업 저장으로 파일을 남겨 두세요.</p>
       <p class="note" id="syncNote"></p>
       <p class="note" id="backupNote"></p>
     </footer>

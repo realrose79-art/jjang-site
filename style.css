@@ -389,3 +389,11 @@ body[data-tab="travel"] .scenery { -webkit-mask-size: contain; mask-size: contai
 .backup-bar { padding: 8px 12px; gap: 8px 12px; margin-top: 10px; font-size: .95rem; line-height: 1.5; flex-wrap: nowrap; }
 .backup-bar > span { flex: 1; min-width: 0; }
 .backup-bar .btn { flex-shrink: 0; white-space: nowrap; }
+
+/* 로그인하지 않은 상태(조회만 가능): 입력·수정·삭제 버튼은 잠금 표시 */
+body.readonly [data-act="add"]::before { content: "🔒 "; }
+body.readonly .acts button,
+body.readonly [data-act="markDone"],
+body.readonly [data-act="manageCats"],
+body.readonly .foot [data-act="import"],
+body.readonly .foot [data-act="clearSamples"] { opacity: .55; }
