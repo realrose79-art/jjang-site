@@ -48,9 +48,8 @@
       <button class="btn ghost small" data-act="import">백업 불러오기</button>
       <button class="btn ghost small" id="authBtn" data-act="auth">로그인</button>
       <button class="btn ghost small" data-act="sync">지금 동기화</button>
-      <button class="btn ghost small" data-act="clearSamples">예시 데이터 지우기</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
-      <p class="note">조회는 로그인 없이 되고, 입력·수정·삭제는 로그인해야 해요. 로그인하면 기록이 서버에 저장돼 다른 기기에서도 보여요. 가끔 백업 저장으로 파일을 남겨 두세요.</p>
+      <p class="note">조회는 로그인 없이 되고, 입력·수정·삭제는 로그인해야 해요. 로그인하면 입력·수정·삭제할 때마다 서버에 자동 저장되고, 다른 기기에도 바로 반영돼요. 가끔 백업 저장으로 파일을 남겨 두세요.</p>
       <p class="note" id="syncNote"></p>
       <p class="note" id="backupNote"></p>
     </footer>
@@ -63,6 +62,6 @@
   <script src="config.js"></script>
   <script src="data.js"></script>
   <script src="ai-plans.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=20261114"></script>
 </body>
 </html>

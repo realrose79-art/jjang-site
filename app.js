@@ -14,12 +14,25 @@
         S = JSON.parse(raw);
         S.removed = S.removed || [];
         if (S.dataVersion !== def.dataVersion) syncDefaults(def);
+        if (stripSamples()) saveLocal();
         return;
       }
     } catch (e) { /* 저장소를 못 쓰면 예시로 시작 */ }
     S = clone(def);
     S.removed = [];
+    stripSamples();
     S.trips.forEach(function (r) { resolveSub('travel', r); });
+  }
+  /* "예시" 기록은 보여주지 않는다. 서버에 올라가지 않는 기록이라 기기마다 다르게 보이는 원인이 된다.
+     직접 고쳐서 예시 표시가 없어진 기록은 실제 기록이라 남는다. */
+  function stripSamples() {
+    var n = 0;
+    ['exercise', 'songs', 'trips'].forEach(function (k) {
+      var before = (S[k] || []).length;
+      S[k] = (S[k] || []).filter(function (r) { return !r.sample; });
+      n += before - S[k].length;
+    });
+    return n;
   }
   /* 기본 기록의 subName(세부 분류 이름)을 실제 세부 분류와 연결한다.
      같은 이름이 이미 있으면 그걸 쓰고, 없을 때만 새로 만든다. */
@@ -47,7 +60,7 @@
       S[k] = S[k] || [];
       S[k].forEach(function (r) { have[r.id] = 1; });
       def[k].forEach(function (r) {
-        if (have[r.id] || (r.since || 1) <= from) return;
+        if (r.sample || have[r.id] || (r.since || 1) <= from) return;
         var c = clone(r);
         if (k === 'trips') resolveSub('travel', c);
         S[k].push(c);
@@ -747,7 +760,7 @@
         var d = JSON.parse(fr.result);
         if (!d.categories || !d.exercise || !d.songs || !d.trips) throw new Error('형식');
         if (!confirm('현재 기록을 백업 파일 내용으로 바꿀까요?')) return;
-        S = d; save(); renderAll(); toast('백업을 불러왔어요');
+        S = d; stripSamples(); save(); renderAll(); toast('백업을 불러왔어요');
       } catch (e) { toast('올바른 백업 파일이 아니에요'); }
     };
     fr.readAsText(file);
@@ -834,7 +847,7 @@
     add: '기록을 입력하려면', edit: '기록을 수정하려면', del: '기록을 삭제하려면', markDone: '기록을 수정하려면',
     manageCats: '카테고리를 바꾸려면', catAdd: '카테고리를 바꾸려면', catRename: '카테고리를 바꾸려면', catDel: '카테고리를 바꾸려면',
     subAdd: '카테고리를 바꾸려면', subRename: '카테고리를 바꾸려면', subDel: '카테고리를 바꾸려면',
-    import: '백업을 불러오려면', clearSamples: '기록을 삭제하려면', aiReset: 'AI 일정을 되돌리려면'
+    import: '백업을 불러오려면', aiReset: 'AI 일정을 되돌리려면'
   };
   function authDialog(why) {
     if (session) {
@@ -875,6 +888,7 @@
     var h = { apikey: SB.key, 'Content-Type': 'application/json' };
     if (curTok) h.Authorization = 'Bearer ' + curTok;
     opts.headers = Object.assign(h, opts.headers || {});
+    if (keepalive && opts.method && opts.method !== 'GET') opts.keepalive = true;
     return fetch(SB.url + '/rest/v1/' + path, opts).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + ' ' + t); });
       return r.text().then(function (t) { return t ? JSON.parse(t) : null; });
@@ -1086,35 +1100,53 @@
     });
   }
 
-  function scheduleSync() {
+  /* 바뀐 내용은 잠시(0.8초) 모았다가 서버에 바로 올린다. 실패하면 10초 뒤 다시 시도한다. */
+  var retryTimer = null, keepalive = false;
+  function scheduleSync(delay) {
     if (!SB.url || !SB.key || !session) return;
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(function () { syncNow(false, false); }, 1500);
+    setSync('저장 중…');
+    syncTimer = setTimeout(function () { syncTimer = null; syncNow(false, false); }, delay == null ? 800 : delay);
+  }
+  /* 화면을 닫거나 다른 앱으로 넘어갈 때, 기다리던 저장을 바로 보낸다 (페이지가 닫혀도 전송되게 keepalive). */
+  function flushSync() {
+    if (!syncTimer && !retryTimer) return;
+    clearTimeout(syncTimer); syncTimer = null;
+    clearTimeout(retryTimer); retryTimer = null;
+    keepalive = true;
+    syncNow(false, false);
   }
   function syncNow(withPull, manual) {
     if (!SB.url || !SB.key) return;
     if (syncing) { syncAgain = true; return; }
     syncing = true;
     if (session) setSync('Supabase와 동기화 중…');
+    var hadSession = !!session;
     ensureToken().then(function (tok) {
       curTok = tok;
-      if (!tok) return { n: 0, wrote: false };
+      if (!tok) {
+        if (hadSession) toast('로그인이 만료됐어요. 다시 로그인하면 이 기기의 기록이 서버에 저장돼요');
+        return { n: 0, wrote: false };
+      }
       /* 이 계정으로 동기화한 적이 없는 기기: 서버와 다른 기록은 서버 값을 따른다 */
       preferServer = Object.keys(base).length === 0;
       return (withPull ? pull() : Promise.resolve(0)).then(function (n) {
         return push().then(function () { return { n: n, wrote: true }; });
       });
     }).then(function (r) {
+      clearTimeout(retryTimer); retryTimer = null;
       var d = new Date();
       if (r.wrote) setSync((session && session.email ? session.email + ' · ' : '') + '서버에 동기화됨 · ' + pad(d.getHours()) + ':' + pad(d.getMinutes()));
       else { syncing = false; renderAuth(); }
       if (manual) toast(r.n ? '서버 기록 ' + r.n + '건을 반영했어요' : (r.wrote ? '동기화했어요' : '로그인하면 서버에 저장돼요'));
     }).catch(function (e) {
       console.warn(e);
-      setSync('Supabase 동기화 실패 — 기록은 이 기기에 저장돼 있어요');
+      setSync('서버에 아직 저장되지 않았어요 — 기록은 이 기기에 있고, 10초 뒤 다시 시도해요');
       if (manual) toast('동기화하지 못했어요');
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(function () { retryTimer = null; syncNow(true, false); }, 10000);
     }).then(function () {
-      syncing = false;
+      syncing = false; keepalive = false;
       if (syncAgain) { syncAgain = false; scheduleSync(); }
     });
   }
@@ -1184,12 +1216,6 @@
       case 'auth': authDialog(); break;
       case 'signup': doAuth('signup'); break;
       case 'import': $('#importFile').click(); break;
-      case 'clearSamples':
-        if (!confirm('“예시” 표시가 붙은 기록을 모두 지울까요? (직접 입력한 기록은 그대로예요)')) break;
-        S.exercise = S.exercise.filter(function (r) { return !r.sample; });
-        S.songs = S.songs.filter(function (r) { return !r.sample; });
-        S.trips = S.trips.filter(function (r) { return !r.sample; });
-        save(); renderAll(); toast('예시 데이터를 지웠어요'); break;
     }
   });
   window.addEventListener('resize', function () { if (map && ui.tab === 'travel') fitMap(); });
@@ -1207,8 +1233,12 @@
     syncNow(true, false);
   }
   setInterval(autoPull, 15000);
-  document.addEventListener('visibilitychange', autoPull);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushSync(); else autoPull();
+  });
+  window.addEventListener('pagehide', flushSync);
   window.addEventListener('focus', autoPull);
+  window.addEventListener('online', function () { if (session) syncNow(true, false); });
 
   /* ---------- 시작 ---------- */
   load();
