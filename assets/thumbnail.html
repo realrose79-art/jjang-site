@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>썸네일</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    font-family: "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", sans-serif; color: #fff;
+    background: radial-gradient(circle at 86% 12%, #6a3b5a 0, transparent 46%),
+                radial-gradient(circle at 8% 100%, #2f4a3a 0, transparent 40%),
+                linear-gradient(135deg, #241c22 0%, #2e2430 55%, #33293a 100%);
+    position: relative;
+  }
+  .deco { position: absolute; inset: 0; opacity: .2; }
+  .left { position: absolute; left: 72px; top: 92px; width: 560px; }
+  .org { display: inline-flex; align-items: center; gap: 10px; font-size: 20px; color: #d9cdd3; font-weight: 700; }
+  .mark { width: 34px; height: 34px; border-radius: 9px; display: inline-grid; grid-template-columns: 1fr 1fr 1fr; overflow: hidden; }
+  .mark i { display: block; } .mark i:nth-child(1){background:#6fa77a} .mark i:nth-child(2){background:#e070a4} .mark i:nth-child(3){background:#6b9cc4}
+  h1 { margin-top: 26px; font-size: 76px; line-height: 1.15; font-weight: 800; letter-spacing: -2px; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #9cd3a6, #f2a8c9 50%, #92badb); -webkit-background-clip: text; color: transparent; }
+  .desc { margin-top: 22px; font-size: 22px; line-height: 1.55; color: #e6dde1; }
+  .chips { margin-top: 34px; display: flex; gap: 10px; }
+  .chip { font-size: 17px; font-weight: 700; padding: 8px 16px; border-radius: 999px;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.22); }
+  .chip b { font-weight: 700; margin-right: 6px; }
+
+  /* 미니 기록장 */
+  .panel { position: absolute; right: 64px; top: 78px; width: 540px; height: 484px;
+    background: #fffcf9; border-radius: 18px; padding: 20px; color: #3a2e32;
+    box-shadow: 0 30px 60px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.15); }
+  .ph { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .ph b { font-size: 17px; }
+  .seg { display: flex; border: 1px solid #e0d4cf; border-radius: 7px; overflow: hidden; font-size: 12px; font-weight: 700; }
+  .seg span { padding: 4px 10px; color: #65585c; background: #fff; }
+  .seg span.on { background: #4f7556; color: #fff; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .kpi { background: #fff; border-radius: 9px; padding: 8px 10px; border-left: 4px solid #e0d4cf; box-shadow: 0 1px 2px rgba(40,20,30,.08); }
+  .kpi small { display: block; font-size: 11px; color: #65585c; font-weight: 700; }
+  .kpi strong { font-size: 21px; white-space: nowrap; }
+  .kpi strong span { font-size: 13px; margin-left: 1px; }
+  .k1 { border-left-color: #4f7556; } .k1 strong { color: #4f7556; }
+  .k2 { border-left-color: #b53f78; } .k2 strong { color: #b53f78; }
+  .k3 { border-left-color: #3f6f95; } .k3 strong { color: #3f6f95; }
+  .k4 { border-left-color: #a06a10; } .k4 strong { color: #a06a10; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { background: #fff; border-radius: 10px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(40,20,30,.08); }
+  .card h3 { font-size: 12px; font-weight: 700; color: #65585c; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .card h3 em { font-style: normal; color: #4f7556; }
+  .bars { display: flex; align-items: flex-end; gap: 9px; height: 112px; padding-bottom: 2px; border-bottom: 1px solid #e9dfda;
+    background-image: linear-gradient(to top, #f1ebe8 1px, transparent 1px); background-size: 100% 28px; }
+  .bars div { flex: 1; border-radius: 5px 5px 2px 2px; background: #cfe0cf; }
+  .bars div.hi { background: #4f7556; }
+  .days { display: flex; gap: 9px; margin-top: 5px; font-size: 10.5px; color: #65585c; }
+  .days span { flex: 1; text-align: center; }
+  .map { position: relative; height: 131px; border-radius: 8px; overflow: hidden;
+    background: linear-gradient(160deg, #e1eaf1, #d3e1ec); }
+  .map svg { position: absolute; inset: 0; }
+  .pin { position: absolute; width: 12px; height: 12px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+    border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .pin.d { background: #3f6f95; } .pin.w { background: #e08a1e; }
+  .songs { margin-top: 10px; }
+  .song { display: grid; grid-template-columns: 46px 1fr auto; align-items: center; gap: 10px; height: 34px; border-bottom: 1px solid #f0e8e4; font-size: 12px; }
+  .song:last-child { border-bottom: 0; }
+  .thumb { height: 26px; border-radius: 4px; background: linear-gradient(135deg, #f9e0ea, #e9b3cb); position: relative; }
+  .thumb::after { content: ""; position: absolute; left: 19px; top: 8px; border: 5px solid transparent; border-left: 8px solid #fff; }
+  .song b { font-size: 12px; } .song small { color: #65585c; margin-left: 6px; }
+  .tag { font-size: 10.5px; font-weight: 700; color: #b53f78; background: #fce6ef; padding: 2px 8px; border-radius: 999px; }
+  .badge { position: absolute; right: 30px; bottom: 34px; display: flex; align-items: center; gap: 8px;
+    background: #fff; color: #3f6f95; font-weight: 800; font-size: 15px; padding: 10px 16px; border-radius: 12px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.3); border: 1px solid #c9dbe8; }
+  .badge i { width: 22px; height: 22px; border-radius: 50%; background: #3f6f95; color: #fff; font-style: normal;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+</style>
+</head>
+<body>
+  <svg class="deco" viewBox="0 0 1280 640" aria-hidden="true">
+    <g stroke="#f2c6da" stroke-width="1.2" fill="none">
+      <path d="M-10 600 C 90 560, 160 620, 260 585 S 430 560, 520 600 S 620 590, 660 570"/>
+      <path d="M-10 618 L660 618 M-10 628 L660 628"/>
+      <path d="M990 24 L1075 48 L1165 20 L1262 52"/>
+    </g>
+    <g fill="#f2c6da">
+      <circle cx="260" cy="585" r="4"/><circle cx="520" cy="600" r="4"/><circle cx="1075" cy="48" r="3"/><circle cx="1165" cy="20" r="3"/>
+    </g>
+  </svg>
+
+  <section class="left">
+    <div class="org"><span class="mark"><i></i><i></i><i></i></span>운동 · 음악 · 여행</div>
+    <h1>나의<br><em>기록장</em></h1>
+    <p class="desc">운동 시간, 마스터한 연주곡, 1998년부터의 여행을<br>휴대폰과 PC에서 한 화면에</p>
+    <div class="chips">
+      <span class="chip"><b>🚴</b>운동 기록</span>
+      <span class="chip"><b>🎹</b>연주곡 목록</span>
+      <span class="chip"><b>🧳</b>여행 지도·AI 일정</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="ph"><b>이번 주 기록</b><div class="seg"><span class="on">운동</span><span>음악</span><span>여행</span></div></div>
+    <div class="kpis">
+      <div class="kpi k1"><small>이번 주 운동</small><strong>1<span>시간</span> 55<span>분</span></strong></div>
+      <div class="kpi k2"><small>마스터한 곡</small><strong>17<span>곡</span></strong></div>
+      <div class="kpi k3"><small>다녀온 곳</small><strong>16<span>곳</span></strong></div>
+      <div class="kpi k4"><small>가고 싶은 곳</small><strong>3<span>곳</span></strong></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>요일별 운동 <em>워킹 · 자전거</em></h3>
+        <div class="bars"><div style="height:42%"></div><div class="hi" style="height:70%"></div><div style="height:30%"></div><div class="hi" style="height:58%"></div><div style="height:22%"></div><div class="hi" style="height:92%"></div><div style="height:48%"></div></div>
+        <div class="days"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span></div>
+      </div>
+      <div class="card">
+        <h3>여행 지도 <em style="color:#3f6f95">● 다녀옴 <span style="color:#e08a1e">● 가고 싶음</span></em></h3>
+        <div class="map">
+          <svg viewBox="0 0 240 131" preserveAspectRatio="none" aria-hidden="true">
+            <g fill="#f7f3ee" stroke="#b9cbd9" stroke-width="1">
+              <path d="M10 40 C 30 20, 70 18, 92 34 C 100 50, 80 70, 60 74 C 40 80, 18 66, 10 40 Z"/>
+              <path d="M112 22 C 140 10, 190 16, 214 36 C 226 58, 204 82, 176 86 C 150 92, 122 74, 116 52 Z"/>
+              <path d="M150 96 C 168 92, 186 100, 184 114 C 172 124, 152 120, 150 96 Z"/>
+              <path d="M40 92 C 56 88, 70 98, 64 116 C 50 124, 36 112, 40 92 Z"/>
+            </g>
+          </svg>
+          <span class="pin d" style="left:34px;top:38px"></span>
+          <span class="pin d" style="left:58px;top:52px"></span>
+          <span class="pin d" style="left:128px;top:30px"></span>
+          <span class="pin d" style="left:178px;top:44px"></span>
+          <span class="pin d" style="left:196px;top:58px"></span>
+          <span class="pin w" style="left:188px;top:30px"></span>
+          <span class="pin w" style="left:164px;top:100px"></span>
+          <span class="pin d" style="left:50px;top:98px"></span>
+        </div>
+      </div>
+    </div>
+    <div class="card songs">
+      <div class="song"><span class="thumb"></span><span><b>봄봄봄</b><small>로이킴</small></span><span class="tag">피아노 · 봄</span></div>
+      <div class="song"><span class="thumb"></span><span><b>가을 우체국 앞에서</b><small>윤도현</small></span><span class="tag">피아노 · 가을</span></div>
+      <div class="song"><span class="thumb"></span><span><b>한 페이지가 될 수 있게</b><small>DAY6</small></span><span class="tag">밴드반주</span></div>
+    </div>
+  </section>
+
+  <div class="badge"><i>✓</i>휴대폰 · PC 자동 동기화</div>
+</body>
+</html>
